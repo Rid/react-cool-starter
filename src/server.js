@@ -8,7 +8,7 @@ import helmet from 'helmet';
 import hpp from 'hpp';
 import favicon from 'serve-favicon';
 import React from 'react';
-import { renderToString } from 'react-dom/server';
+import { renderToNodeStream } from 'react-dom/server';
 import { StaticRouter } from 'react-router-dom';
 import { renderRoutes, matchRoutes } from 'react-router-config';
 import { Provider } from 'react-redux';
@@ -19,7 +19,8 @@ import chalk from 'chalk';
 import openBrowser from 'react-dev-utils/openBrowser';
 
 import configureStore from './utils/configureStore';
-import renderHtml from './utils/renderHtml';
+import renderHeader from './utils/renderHeader';
+import renderFooter from './utils/renderFooter';
 import routes from './routes';
 import config from './config';
 
@@ -114,7 +115,6 @@ app.get('*', (req, res) => {
       );
 
       const initialState = store.getState();
-      const htmlContent = renderToString(AppComponent);
       // head must be placed after "renderToString"
       // see: https://github.com/nfl/react-helmet#server-usage
       const head = Helmet.renderStatic();
@@ -131,10 +131,20 @@ app.get('*', (req, res) => {
       // Check page status
       const status = staticContext.status === '404' ? 404 : 200;
 
-      // Pass the route and initial state into html template
-      res
-        .status(status)
-        .send(renderHtml(head, extractor, htmlContent, initialState));
+      // Send the start of our HTML to the browser
+      res.status(status).write(renderHeader(head));
+
+      // Render frontend to a stream and pipe it to the response
+      const stream = renderToNodeStream(AppComponent);
+      stream.pipe(
+        res,
+        { end: false }
+      );
+
+      // When React finishes rendering send the rest of our HTML to the browser
+      stream.on('end', () => {
+        res.end(renderFooter(head, extractor, initialState));
+      });
     } catch (err) {
       res.status(404).send('Not Found :(');
 
